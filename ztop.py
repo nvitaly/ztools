@@ -92,7 +92,7 @@ def draw_screen(s, adata, hdata, priority, ack, compact):
                         len([ x for x in adata if x.ack == 1 ])
                      ), ts, max_x))
 
-
+    i = 0
     for i, el in enumerate([ x for x in adata if x.ack == 0]):
         if i > max_y/3:
             s.addstr(2+i, 2, "Skipping....")
@@ -107,7 +107,7 @@ def draw_screen(s, adata, hdata, priority, ack, compact):
                     mh=32), max_x-1) ,
                  curses.color_pair(5) | curses.A_BOLD)
     s.addstr(2+i+1, 0, " " * max_x)
-    s.addstr(2+i+2, 0, fill_line("Last events:", max_x))
+    s.addstr(2+i+2, 0, fill_line("Last events:", max_x), curses.A_BLINK)
 
     for ii, el in enumerate(hdata):
         if 2+i+3+ii >= max_y:
@@ -136,14 +136,15 @@ def draw_screen(s, adata, hdata, priority, ack, compact):
             refresh_time = refresh_time - 400
             if refresh_time <= 0:
                return ""
-            if blink == 0:
-                s.addstr(0, 0, "Active Problems:")
-                blink = 1
-            else:
-                s.addstr(0, 0, "Active Problems:",
-                         curses.color_pair(5) | curses.A_REVERSE)
-                blink = 0
-            s.refresh()
+            if i > 0: # that bad and not readble - FIX IT
+                if blink == 0:
+                    s.addstr(0, 0, "Active Problems:")
+                    blink = 1
+                else:
+                    s.addstr(0, 0, "Active Problems:",
+                             curses.color_pair(5) | curses.A_REVERSE)
+                    blink = 0
+                s.refresh()
         except KeyboardInterrupt:
             return "exit"
 

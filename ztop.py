@@ -80,6 +80,7 @@ def draw_screen_help(s, lastkey, data):
         return
 
 def draw_screen(s, adata, hdata, priority, ack, compact):
+    refresh_time = 10000
     max_y, max_x = s.getmaxyx()
 
     ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -132,6 +133,9 @@ def draw_screen(s, adata, hdata, priority, ack, compact):
             key = s.getkey()
             return key
         except curses.error as err:
+            refresh_time = refresh_time - 400
+            if refresh_time <= 0:
+               return ""
             if blink == 0:
                 s.addstr(0, 0, "Active Problems:")
                 blink = 1

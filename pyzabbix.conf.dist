@@ -1,0 +1,6 @@
+[server]
+url: https://zabbix.url/zabbix
+user: zabbix_user
+pass: zabbix_pass
+
+[ztop]

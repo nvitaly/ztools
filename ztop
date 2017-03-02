@@ -1,0 +1,10 @@
+#!/bin/sh
+
+
+while /bin/true; do
+    ./ztop.py
+    if [ $? -eq 0 ]; then
+        exit
+    fi
+    sleep 10
+done

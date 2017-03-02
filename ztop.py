@@ -1,29 +1,28 @@
 #!/usr/bin/env python3
 
 #  TODO PLAN
-#   1. config file (global and personal)
+#   1. DONE config file (global and personal)
 #        zabbix creds, min priority
-#   - NOT DOING IT 2. Fitlering by hostname pattern, description
 #   3. IP Address
-#   4. Datacenter
 #   5. Make sound for new events
-#   6. test blinking on raspberry
+#   6. test blinking on raspberry < go with BLINK!
 #   7. Condensed view for last events
 #   8. keyboard commands
-#        h - help, a - ACK/NO ACK,
+#        h - help, a - ACK/NO ACK, <- DONE
 #        NO l - last events condenced or plan list,
-#        1,2,3,4,5,6 - choose min priority
-#        f - enable/diable filter (I do not think we need filter!)
 
 import os
+import sys
 import configparser
 from pyzabbix import ZabbixAPI
 import requests
 from requests.packages.urllib3.exceptions import InsecureRequestWarning
+import subprocess
 
 from curses import wrapper
 import curses
 from datetime import datetime
+import time
 from collections import defaultdict, namedtuple
 
 requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
@@ -46,8 +45,8 @@ def fill_line(str, max_x):
 
     return str + " " * (max_x - len(str))
 
-def time_since(unixtime):
-    sec = int((datetime.now() - datetime.fromtimestamp(unixtime)).total_seconds())
+def time_since(start, end=time.time()):
+    sec = end - start
 
     days = round(sec / (24 * 60 * 60))
     if days > 0:
@@ -73,15 +72,26 @@ def draw_screen_help(s, lastkey, data):
     s.addstr(3, 2, "c - to toggle compact last event")
     s.addstr(4, 2, "q - to exit")
 
+    ipinfo = subprocess.check_output(["/sbin/ip", "addr"], universal_newlines=True).split("\n")
+    for i, line in enumerate(ipinfo):
+        s.addstr(10+i, 2, line)
+
+
+
+
     s.timeout(10 * 1000)
     try:
         key = s.getkey()
+        return
     except:
         return
 
 def draw_screen(s, adata, hdata, priority, ack, compact):
     refresh_time = 10000
     max_y, max_x = s.getmaxyx()
+
+    max_hhost = max([len(x.host) for x in hdata])
+    max_ahost = max([len(x.host) for x in adata])
 
     ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -91,62 +101,52 @@ def draw_screen(s, adata, hdata, priority, ack, compact):
                         len([ x for x in adata if x.ack == 0 ]),
                         len([ x for x in adata if x.ack == 1 ])
                      ), ts, max_x))
-
-    i = 0
-    for i, el in enumerate([ x for x in adata if x.ack == 0]):
-        if i > max_y/3:
-            s.addstr(2+i, 2, "Skipping....")
+    i = None
+    for i, el in enumerate([ x for x in adata if not ack or x.ack == 0]):
+        if i > max_y/2:
+            s.addstr(2+i, 0, fill_line("   Skipping....", max_x))
             break
         s.addstr(2+i, 0,
-                 fill_line("{ts} {age:>4} {p:>8} {h:<{mh}} {d}".format(
+                 fill_line("{ts} {age:>4} {p:>8} {h:>{mh}}    {d}".format(
                     ts=mk_ts(el.ptime),
                     age=time_since(el.ptime),
                     p=priority_map[el.priority]["name"],
                     h=el.host[:32],
                     d=el.description,
-                    mh=32), max_x-1) ,
+                    mh=max_ahost), max_x-1) ,
                  curses.color_pair(5) | curses.A_BOLD)
+    if i is None:
+        i = 0
+        s.addstr(2+i, 0, fill_line("    nothing happening :)", max_x))
+
     s.addstr(2+i+1, 0, " " * max_x)
-    s.addstr(2+i+2, 0, fill_line("Last events:", max_x), curses.A_BLINK)
+    s.addstr(2+i+2, 0, fill_line("Last events:", max_x))
 
     for ii, el in enumerate(hdata):
         if 2+i+3+ii >= max_y:
             break
 
         s.addstr(2+i+3+ii, 0,
-                 fill_line("{pts} {rts} {age:>4} {p:>4} {h:<{mh}} {d}".format(
+                 fill_line("{pts} {rts} {age:>4} {p:>8} {h:>{mh}}    {d}".format(
                     pts=mk_ts(el.ptime) if el.ptime else "        N/A        ",
                     rts=mk_ts(el.rtime) if el.rtime else "        N/A        " ,
-                    age=23,
+                    age=time_since(el.ptime, el.rtime) if el.ptime and el.rtime else "-",
                     p=priority_map[el.priority]["name"],
                     h=el.host,
                     d=el.description,
-                    mh=32), max_x-1),
+                    mh=max_hhost), max_x-1),
                  curses.color_pair(el.priority))
 
     s.refresh()
 
-    s.timeout(400)
-    blink = 0
-    while 1:
-        try:
-            key = s.getkey()
-            return key
-        except curses.error as err:
-            refresh_time = refresh_time - 400
-            if refresh_time <= 0:
-               return ""
-            if i > 0: # that bad and not readble - FIX IT
-                if blink == 0:
-                    s.addstr(0, 0, "Active Problems:")
-                    blink = 1
-                else:
-                    s.addstr(0, 0, "Active Problems:",
-                             curses.color_pair(5) | curses.A_REVERSE)
-                    blink = 0
-                s.refresh()
-        except KeyboardInterrupt:
-            return "exit"
+    s.timeout(10 * 1000)
+    try:
+        key = s.getkey()
+        return key
+    except curses.error as err:
+        return ""
+    except KeyboardInterrupt:
+        return "exit"
 
 
 def zabbix_get_data(z, ack):
@@ -261,12 +261,9 @@ def main(s, config):
                               compact)
 
         if lastkey in ["q", "exit"]:
-            break
+            sys.exit(0)
         if lastkey == "a":
-            if ack:
-                ack = False
-            else:
-                ack = True
+            ack = not ack
         if lastkey == "h":
             draw_screen_help(s, lastkey, data)
 

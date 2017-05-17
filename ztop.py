@@ -4,7 +4,7 @@
 #   1. DONE config file (global and personal)
 #        zabbix creds, min priority
 #   3. IP Address
-#   5. Make sound for new events
+#   5. Make sound for new events 
 #   6. test blinking on raspberry < go with BLINK!
 #   7. Condensed view for last events
 #   8. keyboard commands
@@ -159,7 +159,7 @@ def draw_screen(s, adata, hdata, priority, ack, compact):
                     p=priority_map[el.priority]["name"],
                     h=el.host[:32],
                     d=el.description,
-                    mh=max_ahost), curses.color_pair(5) | curses.A_BOLD)
+                    mh=max_ahost), curses.color_pair(el.priority) | curses.A_BOLD)
     if i is None:
         i = 0
         s.addstr(2+i, 0, "    nothing happening :)")

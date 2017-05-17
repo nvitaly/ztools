@@ -18,6 +18,7 @@ from pyzabbix import ZabbixAPI
 import requests
 from requests.packages.urllib3.exceptions import InsecureRequestWarning
 import subprocess
+import syslog
 
 from curses import wrapper
 import curses
@@ -34,6 +35,18 @@ priority_map = [
     {"name": "Average"},
     {"name": "HIGH"},
     {"name": "Disaster"}]
+
+global_last_event_clock = 0
+global_last_active_clock = 0
+global_ack_active_clock = 0
+global_active_led = 0
+global_debug = True
+
+def log(msg):
+    if not global_debug:
+        return
+    syslog.syslog(msg)
+    
 
 
 def add_end(str1, str2, max_x):
@@ -60,14 +73,45 @@ def time_since(start, end=time.time()):
     if minutes > 0:
         return "{}m".format(minutes)
 
-    return "{}s".format(sec)
+    return "<1m"
 
 
 def mk_ts(unixtime):
     return datetime.fromtimestamp(unixtime).strftime("%Y-%m-%d %H:%M:%S")
 
+def led_action_off():
+    log("LED OFF")
+    led_off_cmd = config.get("ztop", "led_off", fallback=None)
+    if led_off_cmd and led_off_cmd != "":
+        subprocess.call(led_off_cmd.split(" "))
+
+def led_action(hdata, adata):
+    global global_last_event_clock
+    global global_last_active_clock
+    global global_ack_active_clock
+    global global_active_led
+
+    last_event_clock = max( [x.ptime for x in hdata if x.ptime] + [x.rtime for x in hdata if x.rtime]  )
+    if global_last_event_clock < last_event_clock:
+        global_last_event_clock = last_event_clock
+        led_new_cmd = config.get("ztop", "led_new_events", fallback=None)
+        if led_new_cmd and led_new_cmd != "":
+            log("LED BLINK")
+            subprocess.call(led_new_cmd.split(" "))
+            global_active_led = 0
+    global_last_active_clock = max([x.ptime for x in adata if x.ptime]) 
+    if global_last_active_clock > global_ack_active_clock:
+        sev = max([x.priority for x in adata if x.ptime > global_ack_active_clock])
+        if global_active_led >= sev:
+            return
+        global_active_led = sev
+        led_x_cmd = config.get("ztop", "led_{}".format(sev), fallback=None)
+        if led_x_cmd and led_x_cmd != "" :
+            log("LED ON :{}".format(sev))
+            subprocess.call(led_x_cmd.split(" "))
+
 def draw_screen_help(s, lastkey, data):
-    s.clear()
+    s.erase()
     s.addstr(2, 2, "a - to toggle ACK/unACK events")
     s.addstr(3, 2, "c - to toggle compact last event")
     s.addstr(4, 2, "q - to exit")
@@ -95,6 +139,8 @@ def draw_screen(s, adata, hdata, priority, ack, compact):
 
     ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
+    s.erase()
+
     s.addstr(0,
              0,
              add_end("Active Problems: {} ACKed: {}".format(
@@ -104,38 +150,38 @@ def draw_screen(s, adata, hdata, priority, ack, compact):
     i = None
     for i, el in enumerate([ x for x in adata if not ack or x.ack == 0]):
         if i > max_y/2:
-            s.addstr(2+i, 0, fill_line("   Skipping....", max_x))
+            s.addstr(2+i, 0, "   Skipping....")
             break
         s.addstr(2+i, 0,
-                 fill_line("{ts} {age:>4} {p:>8} {h:>{mh}}    {d}".format(
+                 "{ts} {age:>4} {p:>8} {h:>{mh}}    {d}".format(
                     ts=mk_ts(el.ptime),
-                    age=time_since(el.ptime),
+                    age=time_since(el.ptime, time.time()),
                     p=priority_map[el.priority]["name"],
                     h=el.host[:32],
                     d=el.description,
-                    mh=max_ahost), max_x-1) ,
-                 curses.color_pair(5) | curses.A_BOLD)
+                    mh=max_ahost), curses.color_pair(5) | curses.A_BOLD)
     if i is None:
         i = 0
-        s.addstr(2+i, 0, fill_line("    nothing happening :)", max_x))
+        s.addstr(2+i, 0, "    nothing happening :)")
 
-    s.addstr(2+i+1, 0, " " * max_x)
-    s.addstr(2+i+2, 0, fill_line("Last events:", max_x))
+    s.addstr(2+i+2, 0, "Last events:")
 
     for ii, el in enumerate(hdata):
         if 2+i+3+ii >= max_y:
             break
 
         s.addstr(2+i+3+ii, 0,
-                 fill_line("{pts} {rts} {age:>4} {p:>8} {h:>{mh}}    {d}".format(
+                 "{pts} {rts} {age:>4} {p:>8} {h:>{mh}}    {d}".format(
                     pts=mk_ts(el.ptime) if el.ptime else "        N/A        ",
                     rts=mk_ts(el.rtime) if el.rtime else "        N/A        " ,
                     age=time_since(el.ptime, el.rtime) if el.ptime and el.rtime else "-",
                     p=priority_map[el.priority]["name"],
                     h=el.host,
                     d=el.description,
-                    mh=max_hhost), max_x-1),
-                 curses.color_pair(el.priority))
+                    mh=max_hhost), curses.color_pair(el.priority))
+
+
+    led_action(hdata, adata)
 
     s.refresh()
 
@@ -226,7 +272,10 @@ def process_history(data):
            ))
     return elist    
 
-def main(s, config):
+def main(s):
+    global global_last_active_clock
+    global global_ack_active_clock
+    global global_active_led
     curses.curs_set(0)
 
     curses.init_pair(1, curses.COLOR_WHITE, curses.COLOR_BLACK)
@@ -266,10 +315,14 @@ def main(s, config):
             ack = not ack
         if lastkey == "h":
             draw_screen_help(s, lastkey, data)
+        if lastkey == " ":
+            global_ack_active_clock = global_last_active_clock
+            global_active_led = 0
+            led_action_off()
 
 config = configparser.ConfigParser()
 config.read([
     os.path.dirname(os.path.realpath(__file__)) + "/pyzabbix.conf",
     os.getenv("HOME") + "/pyzabbix.conf",
     "/etc/pyzabbix.conf"])
-wrapper(main, config)
+wrapper(main)

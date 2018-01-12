@@ -99,7 +99,7 @@ def led_action(hdata, adata):
             log("LED BLINK")
             subprocess.call(led_new_cmd.split(" "))
             global_active_led = 0
-    global_last_active_clock = max([x.ptime for x in adata if x.ptime]) 
+    global_last_active_clock = max([x.ptime for x in adata if x.ptime] + [0]) 
     if global_last_active_clock > global_ack_active_clock:
         sev = max([x.priority for x in adata if x.ptime > global_ack_active_clock])
         if global_active_led >= sev:
@@ -134,8 +134,8 @@ def draw_screen(s, adata, hdata, priority, ack, compact):
     refresh_time = 10000
     max_y, max_x = s.getmaxyx()
 
-    max_hhost = max([len(x.host) for x in hdata])
-    max_ahost = max([len(x.host) for x in adata])
+    max_hhost = max([len(x.host) for x in hdata] + [0])
+    max_ahost = max([len(x.host) for x in adata] + [0])
 
     ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -153,7 +153,7 @@ def draw_screen(s, adata, hdata, priority, ack, compact):
             s.addstr(2+i, 0, "   Skipping....")
             break
         s.addstr(2+i, 0,
-                 "{ts} {age:>4} {p:>8} {h:>{mh}}    {d}".format(
+                 "{ts} {age:>4} {p:>8} {h:>{mh}}  {d}".format(
                     ts=mk_ts(el.ptime),
                     age=time_since(el.ptime, time.time()),
                     p=priority_map[el.priority]["name"],

@@ -2,7 +2,7 @@
 
 
 while /bin/true; do
-    ./ztop.py
+    /opt/ztools/ztop.py
     if [ $? -eq 0 ]; then
         exit
     fi

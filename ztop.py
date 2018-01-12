@@ -153,7 +153,7 @@ def draw_screen(s, adata, hdata, priority, ack, compact):
             s.addstr(2+i, 0, "   Skipping....")
             break
         s.addstr(2+i, 0,
-                 "{ts} {age:>4} {p:>8} {h:>{mh}}    {d}".format(
+                 "{ts} {age:>4} {p:>8} {h:>{mh}} {d}".format(
                     ts=mk_ts(el.ptime),
                     age=time_since(el.ptime, time.time()),
                     p=priority_map[el.priority]["name"],
